@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from './supabaseClient'
 
 function App() {
   const [todos, setTodos] = useState([])
   const [inputValue, setInputValue] = useState('')
+  const [loading, setLoading] = useState(true)
 
   const getDateString = (date) => {
     return new Date(date).toLocaleDateString()
@@ -12,50 +14,86 @@ function App() {
     return getDateString(date) === getDateString(new Date())
   }
 
-  const addTodo = (e) => {
+  // Fetch todos on mount
+  useEffect(() => {
+    fetchTodos()
+  }, [])
+
+  const fetchTodos = async () => {
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .order('created_date', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching todos:', error)
+    } else {
+      setTodos(data || [])
+    }
+    setLoading(false)
+  }
+
+  const addTodo = async (e) => {
     e.preventDefault()
     if (inputValue.trim() === '') return
 
-    setTodos([
-      ...todos,
-      {
-        id: Date.now(),
-        text: inputValue,
-        completed: false,
-        createdDate: new Date().toISOString(),
-        completedDate: null
-      }
-    ])
-    setInputValue('')
+    const { data, error } = await supabase
+      .from('todos')
+      .insert([{ text: inputValue }])
+      .select()
+
+    if (error) {
+      console.error('Error adding todo:', error)
+    } else {
+      setTodos([data[0], ...todos])
+      setInputValue('')
+    }
   }
 
-  const toggleTodo = (id) => {
-    setTodos(todos.map(todo =>
-      todo.id === id
-        ? {
-            ...todo,
-            completed: !todo.completed,
-            completedDate: !todo.completed ? new Date().toISOString() : null
-          }
-        : todo
-    ))
+  const toggleTodo = async (id, completed) => {
+    const updates = {
+      completed: !completed,
+      completed_date: !completed ? new Date().toISOString() : null
+    }
+
+    const { error } = await supabase
+      .from('todos')
+      .update(updates)
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error updating todo:', error)
+    } else {
+      setTodos(todos.map(todo =>
+        todo.id === id ? { ...todo, ...updates } : todo
+      ))
+    }
   }
 
-  const deleteTodo = (id) => {
-    setTodos(todos.filter(todo => todo.id !== id))
+  const deleteTodo = async (id) => {
+    const { error } = await supabase
+      .from('todos')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting todo:', error)
+    } else {
+      setTodos(todos.filter(todo => todo.id !== id))
+    }
   }
 
   // Separate todos into three groups
-  const todayTasks = todos.filter(t => !t.completed && isToday(t.createdDate))
-  const todayCompleted = todos.filter(t => t.completed && t.completedDate && isToday(t.completedDate))
-  const pastCompleted = todos.filter(t => t.completed && t.completedDate && !isToday(t.completedDate))
+  const todayTasks = todos.filter(t => !t.completed && isToday(t.created_date))
+  const todayCompleted = todos.filter(t => t.completed && t.completed_date && isToday(t.completed_date))
+  const pastCompleted = todos.filter(t => t.completed && t.completed_date && !isToday(t.completed_date))
 
   const TodoItem = ({ todo }) => (
     <li className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
       <input
         type="checkbox"
         checked={todo.completed}
-        onChange={() => toggleTodo(todo.id)}
+        onChange={() => toggleTodo(todo.id, todo.completed)}
         className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
       />
       <span
@@ -92,6 +130,14 @@ function App() {
       </div>
     </div>
   )
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+        <p className="text-white text-xl">Loading...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 py-12 px-4">
