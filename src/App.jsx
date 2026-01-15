@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
+import Auth from './Auth'
 
 function App() {
+  const [session, setSession] = useState(null)
   const [todos, setTodos] = useState([])
   const [inputValue, setInputValue] = useState('')
   const [loading, setLoading] = useState(true)
@@ -14,9 +16,28 @@ function App() {
     return getDateString(date) === getDateString(new Date())
   }
 
-  // Fetch todos on mount
+  // Check auth state on mount
   useEffect(() => {
-    fetchTodos()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      if (session) {
+        fetchTodos()
+      } else {
+        setLoading(false)
+      }
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+      if (session) {
+        fetchTodos()
+      } else {
+        setTodos([])
+        setLoading(false)
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   const fetchTodos = async () => {
@@ -39,7 +60,7 @@ function App() {
 
     const { data, error } = await supabase
       .from('todos')
-      .insert([{ text: inputValue }])
+      .insert([{ text: inputValue, user_id: session.user.id }])
       .select()
 
     if (error) {
@@ -81,6 +102,22 @@ function App() {
     } else {
       setTodos(todos.filter(todo => todo.id !== id))
     }
+  }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+  }
+
+  // Show auth screen if not logged in
+  if (!session) {
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+          <p className="text-white text-xl">Loading...</p>
+        </div>
+      )
+    }
+    return <Auth />
   }
 
   // Separate todos into three groups
@@ -139,12 +176,26 @@ function App() {
     )
   }
 
+  // Extract username from email
+  const username = session.user.email.replace('@simpletodo.app', '')
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 py-12 px-4">
       <div className="max-w-md mx-auto">
-        <h1 className="text-4xl font-bold text-white text-center mb-8">
-          Simple Todo
-        </h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold text-white">
+            Simple Todo
+          </h1>
+          <div className="text-right">
+            <p className="text-white/80 text-sm">Hi, {username}</p>
+            <button
+              onClick={handleSignOut}
+              className="text-white/60 hover:text-white text-sm underline"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
 
         <form onSubmit={addTodo} className="mb-8">
           <div className="flex gap-2">
